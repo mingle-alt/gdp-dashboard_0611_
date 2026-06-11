@@ -2,6 +2,8 @@ import streamlit as st
 import pandas as pd
 import math
 from pathlib import Path
+import plotly.express as px
+import plotly.graph_objects as go
 
 st.set_page_config(
     page_title='GDP dashboard',
@@ -101,6 +103,17 @@ filtered_df = gdp_df[
 # 차트용: Country Code → Country Name 으로 교체
 filtered_df['Country'] = filtered_df['Country Code'].map(code_to_name)
 
+def format_gdp(val):
+    """GDP 값을 T/B 단위로 포맷."""
+    if val >= 1e12:
+        return f'${val/1e12:.2f}T'
+    elif val >= 1e9:
+        return f'${val/1e9:.1f}B'
+    else:
+        return f'${val:,.0f}'
+
+COLORS = px.colors.qualitative.Bold
+
 # -----------------------------------------------------------------------------
 # 라인 차트
 st.header(f'{value_label} over time', divider='gray')
@@ -111,7 +124,39 @@ chart_df = filtered_df[['Year', 'Country', value_col]].dropna(subset=[value_col]
 if chart_df.empty:
     st.info("No data available for the selected range.")
 else:
-    st.line_chart(chart_df, x='Year', y=value_col, color='Country')
+    if use_growth:
+        fig_line = px.line(
+            chart_df, x='Year', y=value_col, color='Country',
+            color_discrete_sequence=COLORS,
+            labels={value_col: 'Growth Rate (%)'},
+        )
+        fig_line.update_traces(
+            hovertemplate='<b>%{fullData.name}</b><br>Year: %{x}<br>Growth: %{y:.2f}%<extra></extra>'
+        )
+        fig_line.update_layout(yaxis_ticksuffix='%')
+    else:
+        fig_line = px.line(
+            chart_df, x='Year', y=value_col, color='Country',
+            color_discrete_sequence=COLORS,
+            labels={value_col: 'GDP (USD)'},
+        )
+        fig_line.update_traces(
+            customdata=chart_df[value_col].apply(format_gdp),
+            hovertemplate='<b>%{fullData.name}</b><br>Year: %{x}<br>GDP: %{customdata}<extra></extra>'
+        )
+        fig_line.update_layout(
+            yaxis=dict(tickformat='.2s', tickprefix='$')
+        )
+
+    fig_line.update_layout(
+        plot_bgcolor='white',
+        hovermode='x unified',
+        legend=dict(orientation='h', yanchor='bottom', y=1.02, xanchor='left', x=0),
+        margin=dict(t=60, b=40),
+        xaxis=dict(showgrid=False),
+        yaxis=dict(gridcolor='#f0f0f0'),
+    )
+    st.plotly_chart(fig_line, use_container_width=True)
 
 ''
 ''
@@ -127,7 +172,36 @@ bar_df = bar_df.sort_values(value_col, ascending=False)
 if bar_df.empty:
     st.info(f"No data available for {to_year}.")
 else:
-    st.bar_chart(bar_df.set_index('Country')[value_col])
+    if use_growth:
+        text_vals = bar_df[value_col].map(lambda x: f'{x:+.2f}%')
+        tickformat, ticksuffix, tickprefix = '.1f', '%', ''
+    else:
+        text_vals = bar_df[value_col].map(format_gdp)
+        tickformat, ticksuffix, tickprefix = '.2s', '', '$'
+
+    fig_bar = px.bar(
+        bar_df, x='Country', y=value_col,
+        color='Country', color_discrete_sequence=COLORS,
+        text=text_vals,
+        labels={value_col: value_label},
+    )
+    fig_bar.update_traces(
+        textposition='outside',
+        hovertemplate='<b>%{x}</b><br>' + value_label + ': %{text}<extra></extra>',
+    )
+    fig_bar.update_layout(
+        plot_bgcolor='white',
+        showlegend=False,
+        margin=dict(t=40, b=40),
+        xaxis=dict(showgrid=False),
+        yaxis=dict(
+            gridcolor='#f0f0f0',
+            tickformat=tickformat,
+            ticksuffix=ticksuffix,
+            tickprefix=tickprefix,
+        ),
+    )
+    st.plotly_chart(fig_bar, use_container_width=True)
 
 ''
 ''
